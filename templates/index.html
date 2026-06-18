@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Digit Classifier</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #0f0f13;
+      color: #e8e8f0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      gap: 2rem;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: #c5b4ff;
+    }
+
+    .main {
+      display: flex;
+      gap: 2.5rem;
+      align-items: flex-start;
+    }
+
+    .canvas-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    canvas {
+      background: #000;
+      border-radius: 12px;
+      border: 2px solid #2e2e3a;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 0.6rem;
+    }
+
+    button {
+      padding: 0.55rem 1.4rem;
+      border-radius: 8px;
+      border: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+
+    #clearBtn  { background: #2e2e3a; color: #e8e8f0; }
+    #predictBtn { background: #7c5cfc; color: #fff; }
+
+    .result-panel {
+      width: 240px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+    }
+
+    .prediction-box {
+      background: #1a1a24;
+      border-radius: 12px;
+      border: 1px solid #2e2e3a;
+      padding: 1.4rem;
+      text-align: center;
+    }
+
+    .big-digit {
+      font-size: 5rem;
+      font-weight: 700;
+      color: #c5b4ff;
+      line-height: 1;
+    }
+
+    .confidence {
+      font-size: 0.85rem;
+      color: #888;
+      margin-top: 0.4rem;
+    }
+
+    .bars-label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #555;
+      margin-bottom: 0.4rem;
+    }
+
+    .bars {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+    }
+
+    .bar-label { width: 14px; text-align: right; color: #888; }
+
+    .bar-track {
+      flex: 1;
+      height: 8px;
+      background: #1a1a24;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: #7c5cfc;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    .bar-pct { width: 36px; text-align: right; color: #666; font-size: 0.75rem; }
+
+    .hint {
+      font-size: 0.78rem;
+      color: #444;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Handwritten Digit Classifier</h1>
+
+  <div class="main">
+    <div class="canvas-wrap">
+      <canvas id="canvas" width="280" height="280"></canvas>
+      <div class="btn-row">
+        <button id="clearBtn">Clear</button>
+        <button id="predictBtn">Predict</button>
+      </div>
+      <span class="hint">Draw a digit 0–9, then click Predict</span>
+    </div>
+
+    <div class="result-panel">
+      <div class="prediction-box">
+        <div class="big-digit" id="digitDisplay">—</div>
+        <div class="confidence" id="confDisplay">draw something first</div>
+      </div>
+
+      <div>
+        <div class="bars-label">Confidence per digit</div>
+        <div class="bars" id="barsContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas  = document.getElementById('canvas');
+    const ctx     = canvas.getContext('2d');
+    const digitEl = document.getElementById('digitDisplay');
+    const confEl  = document.getElementById('confDisplay');
+    const barsEl  = document.getElementById('barsContainer');
+
+    // Build bar rows once
+    const barFills = [];
+    const barPcts  = [];
+    for (let i = 0; i < 10; i++) {
+      const row  = document.createElement('div');
+      row.className = 'bar-row';
+
+      const lbl  = document.createElement('span');
+      lbl.className = 'bar-label';
+      lbl.textContent = i;
+
+      const track = document.createElement('div');
+      track.className = 'bar-track';
+      const fill = document.createElement('div');
+      fill.className = 'bar-fill';
+      track.appendChild(fill);
+
+      const pct = document.createElement('span');
+      pct.className = 'bar-pct';
+      pct.textContent = '';
+
+      row.appendChild(lbl);
+      row.appendChild(track);
+      row.appendChild(pct);
+      barsEl.appendChild(row);
+
+      barFills.push(fill);
+      barPcts.push(pct);
+    }
+
+    // Drawing state
+    let drawing = false;
+    ctx.lineWidth  = 22;
+    ctx.lineCap    = 'round';
+    ctx.lineJoin   = 'round';
+    ctx.strokeStyle = '#ffffff';
+
+    function pos(e) {
+      const r = canvas.getBoundingClientRect();
+      const src = e.touches ? e.touches[0] : e;
+      return { x: src.clientX - r.left, y: src.clientY - r.top };
+    }
+
+    canvas.addEventListener('mousedown',  e => { drawing = true; ctx.beginPath(); const p = pos(e); ctx.moveTo(p.x, p.y); });
+    canvas.addEventListener('mousemove',  e => { if (!drawing) return; const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); });
+    canvas.addEventListener('mouseup',    () => drawing = false);
+    canvas.addEventListener('mouseleave', () => drawing = false);
+
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; ctx.beginPath(); const p = pos(e); ctx.moveTo(p.x, p.y); });
+    canvas.addEventListener('touchmove',  e => { e.preventDefault(); if (!drawing) return; const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); });
+    canvas.addEventListener('touchend',   () => drawing = false);
+
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      digitEl.textContent = '—';
+      confEl.textContent  = 'draw something first';
+      barFills.forEach((f, i) => { f.style.width = '0%'; barPcts[i].textContent = ''; });
+    });
+
+    document.getElementById('predictBtn').addEventListener('click', async () => {
+      const dataUrl = canvas.toDataURL('image/png');
+      digitEl.textContent = '…';
+      confEl.textContent  = '';
+
+      try {
+        const res  = await fetch('/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl }),
+        });
+        const data = await res.json();
+
+        digitEl.textContent = data.digit;
+        confEl.textContent  = `${data.confidence}% confidence`;
+
+        data.probabilities.forEach((p, i) => {
+          barFills[i].style.width  = p + '%';
+          barPcts[i].textContent   = p.toFixed(1) + '%';
+          barFills[i].style.background = (i === data.digit) ? '#c5b4ff' : '#7c5cfc';
+        });
+      } catch (err) {
+        digitEl.textContent = '!';
+        confEl.textContent  = 'Error contacting server';
+      }
+    });
+
+    // Auto-predict 600ms after the user stops drawing
+    let debounceTimer;
+    function autoPredict() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        document.getElementById('predictBtn').click();
+      }, 600);
+    }
+    canvas.addEventListener('mouseup',  autoPredict);
+    canvas.addEventListener('touchend', autoPredict);
+  </script>
+</body>
+</html>

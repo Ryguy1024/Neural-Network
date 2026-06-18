@@ -125,6 +125,10 @@ plt.suptitle('What each hidden neuron has learned to look for')
 plt.tight_layout()
 plt.show()
 
+# Save weights so the Flask API can load them without retraining
+np.savez("weights.npz", W1=W1, b1=b1, W2=W2, b2=b2)
+print("Weights saved to weights.npz")
+
 # Show some predictions
 fig, axes = plt.subplots(2, 5, figsize=(10, 4))
 for i, ax in enumerate(axes.flat):
